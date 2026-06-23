@@ -9,6 +9,25 @@ editUrl: ""
 ---
 Anvay has a Python backend and a Next.js frontend. Most changes cross a clear API boundary: the backend defines product-scoped behavior and typed contracts; the UI exposes that behavior without inventing parallel business logic.
 
+## Development architecture
+
+```mermaid
+flowchart LR
+  UI["Next.js UI"] --> Client["Typed API client"]
+  Client --> Routes["FastAPI routes"]
+  Routes --> Registry["Registry + auth"]
+  Routes --> Ingest["Ingestion"]
+  Routes --> Retrieval["Retrieval"]
+  Routes --> Council["Council"]
+  Routes --> Skills["Approval + skills"]
+  Council --> Retrieval
+  Ingest --> Qdrant["Qdrant"]
+  Retrieval --> Qdrant
+  Skills --> Git["Skills Git repository"]
+  MCP["MCP server"] --> Retrieval
+  MCP --> Skills
+```
+
 ## Before you edit
 
 Read the repository instructions first:
@@ -73,6 +92,18 @@ When adding or changing a user-visible capability, trace it in this order:
 
 Do not add a UI-only field that the backend cannot serve. Do not call backend routes directly from components when the API client already owns that boundary.
 
+```mermaid
+flowchart TD
+  Need["User-visible requirement"] --> Contract["Backend model + contract"]
+  Contract --> Auth["Product authorization"]
+  Auth --> Tests["Backend tests"]
+  Tests --> Client["Typed UI accessor"]
+  Client --> Screen["Screen behavior"]
+  Screen --> States["Loading, empty, error, permission states"]
+  States --> Build["Production build"]
+  Build --> Visual["Browser verification"]
+```
+
 ## Test your change
 
 Backend:
@@ -95,6 +126,17 @@ Run retrieval evaluation after changing chunking, embeddings, sparse encoding, f
 uv run pytest -m eval
 ```
 
+### Match validation to risk
+
+| Change | Minimum validation |
+|---|---|
+| Text or narrow visual adjustment | frontend build and affected viewport |
+| API response or permission | route tests, frontend build, denied and allowed cases |
+| Ingestion behavior | unit tests, sync integration test, delta behavior |
+| Retrieval behavior | unit tests, retrieval eval, latency comparison |
+| Council behavior | graph tests, completeness checks, proposal-gate verification |
+| Approval path | tests proving Git write precedes approved status |
+
 ## Common contribution paths
 
 ### Add an API endpoint
@@ -112,6 +154,25 @@ Preserve the bounded graph and proposal gate. Add deterministic checks where pos
 ### Tune retrieval
 
 Treat eval results as part of the implementation. Record the baseline, change one meaningful variable, and compare recall, ranking quality, faithfulness, and latency before adopting the change.
+
+### Change documentation
+
+Public docs live in the separate `anvay-docs` repository and are fetched from Tina Cloud. Write task-oriented MDX there, validate the curated files, commit and push `main`, then wait for Tina indexing before verifying `/docs`.
+
+Use fenced `mermaid` blocks for architecture or lifecycle diagrams. Keep node labels short, avoid diagrams wider than the article, and pair every diagram with prose that explains why the flow matters.
+
+## Debugging approach
+
+Follow the first incorrect boundary rather than patching the final symptom:
+
+1. Reproduce with one product and one request.
+2. Inspect the browser network or API response.
+3. Confirm the typed frontend contract.
+4. Read the route and authorization path.
+5. Trace the domain service and durable-state write.
+6. Inspect derived indexes only after source-of-truth state is understood.
+
+For asynchronous workflows, use session events and source progress logs to locate the stage that failed.
 
 ## Pull request checklist
 

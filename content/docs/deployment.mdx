@@ -11,6 +11,25 @@ This guide describes the supported production shape: the FastAPI backend and pri
 
 ## Target architecture
 
+```mermaid
+flowchart TB
+  Browser["User browser"] -->|HTTPS| Vercel["Next.js UI on Vercel"]
+  Vercel -->|/api/anvay proxy| Caddy["Caddy TLS endpoint"]
+  Caddy --> API["FastAPI service"]
+
+  subgraph Private["Private backend network"]
+    API --> SQLite["SQLite durable state"]
+    API --> Qdrant["Qdrant derived index"]
+    API --> Checkpoints["Council checkpoints"]
+    API --> Skills["Skills Git checkout"]
+  end
+
+  API --> Models["Model providers"]
+  API --> GitHub["Product GitHub sources"]
+  Skills --> SkillsRemote["Skills repository remote"]
+  Vercel --> Tina["Tina Cloud docs"]
+```
+
 | Component | Recommended location | Exposure |
 |---|---|---|
 | Next.js UI | Vercel | Public HTTPS |
@@ -20,6 +39,29 @@ This guide describes the supported production shape: the FastAPI backend and pri
 | Skills checkout | Persistent backend volume | Private; pushed to Git |
 
 Browser API calls use the UI's same-origin `/api/anvay/*` route. The route handler forwards only the Anvay session and CSRF cookies to the configured backend.
+
+### Request path
+
+```mermaid
+sequenceDiagram
+  participant Browser
+  participant UI as Next.js
+  participant Proxy as API route handler
+  participant API as FastAPI
+  participant State as Anvay state
+
+  Browser->>UI: Load protected route
+  UI->>API: Validate session
+  API->>State: Resolve session and user
+  State-->>API: User + permissions
+  API-->>UI: Authenticated identity
+  Browser->>Proxy: /api/anvay/products
+  Proxy->>API: Forward filtered cookies
+  API->>State: Authorize product access
+  State-->>API: Product-scoped result
+  API-->>Proxy: JSON response
+  Proxy-->>Browser: Same-origin response
+```
 
 ## 1. Prepare the backend host
 
@@ -65,6 +107,19 @@ python -c "import secrets; print(secrets.token_urlsafe(48))"
 
 Do not reuse one generated value for multiple settings.
 
+### Secret responsibilities
+
+| Setting | Protects |
+|---|---|
+| `ANVAY_TOKEN_KEY` | encryption of connector credentials at rest |
+| `ANVAY_SECRET_KEY` | application security material |
+| `ANVAY_ADMIN_API_KEY` | privileged bearer access for controlled automation |
+| bootstrap password | initial administrator login |
+| skills repository token | clone, commit, and push of approved skills |
+| provider API keys | embeddings, reranking, and council model access |
+
+Store production secrets in the host or deployment platform secret manager. Do not bake them into container images.
+
 ## 3. Start the backend
 
 ```bash
@@ -86,6 +141,15 @@ Expected body:
 
 Verify that Qdrant is not publicly reachable. Its ports should remain inside the Docker network.
 
+Inspect service health:
+
+```bash
+docker compose -f docker-compose.prod.yml ps
+docker compose -f docker-compose.prod.yml logs --tail=100 api
+```
+
+Resolve startup errors before deploying the UI. A public frontend cannot compensate for a partially initialized backend.
+
 ## 4. Deploy the UI
 
 Create a Vercel project from `anvay-ui` and set:
@@ -101,6 +165,8 @@ TINA_BRANCH=main
 
 Add the final Vercel domain to `ANVAY_ALLOWED_ORIGINS` on the backend, then redeploy or restart the API after changing the environment.
 
+The docs route fetches published content from Tina Cloud server-side. It does not read a local docs checkout at runtime. Use a read-only Tina content token and verify the configured branch matches the branch Tina indexes.
+
 ## 5. Bootstrap access
 
 Open the UI root and sign in with the bootstrap administrator credentials. The root route validates an existing session before showing the authenticated product dashboard; unauthenticated visitors see the public landing page.
@@ -115,7 +181,19 @@ After first login:
 
 Rotate or remove bootstrap credentials according to your operating policy.
 
-## 6. Protect sensitive state
+## 6. Network and authorization boundaries
+
+- terminate public TLS at Caddy or an equivalent reverse proxy
+- expose the API only through its intended HTTPS hostname
+- keep Qdrant and persistent volumes private
+- allow browser origins explicitly
+- rely on backend authorization for every protected operation
+- keep filesystem sources disabled in environments where arbitrary host paths are unsafe
+- scope connector credentials to one product source
+
+UI permission checks improve usability, but FastAPI authorization is the security boundary.
+
+## 7. Protect sensitive state
 
 Back up these persistent locations:
 
@@ -127,7 +205,23 @@ Back up these persistent locations:
 
 Qdrant is derived, but restoring it avoids a full re-index. SQLite and the approved skills repository contain durable workflow state and require stricter backup discipline.
 
-## 7. Observability
+### Recovery priority
+
+```mermaid
+flowchart LR
+  RestoreSQLite["Restore SQLite"] --> RestoreSkills["Restore skills checkout"]
+  RestoreSkills --> RestoreConfig["Restore configuration + secrets"]
+  RestoreConfig --> Start["Start backend services"]
+  Start --> RestoreQdrant{"Qdrant backup available?"}
+  RestoreQdrant -->|Yes| LoadQdrant["Restore Qdrant"]
+  RestoreQdrant -->|No| Resync["Resynchronize products"]
+  LoadQdrant --> Verify["Run smoke tests"]
+  Resync --> Verify
+```
+
+Test restoration on a schedule. A backup that has never been restored is an assumption, not a recovery plan.
+
+## 8. Observability
 
 Follow API logs:
 
@@ -151,7 +245,9 @@ Monitor:
 - skill Git push failures
 - authentication and access-request events
 
-## 8. Upgrade safely
+Correlate source-sync and council failures with model-provider status. External model errors can look like application regressions if provider health and rate limits are not visible.
+
+## 9. Upgrade safely
 
 ```bash
 git pull
@@ -159,6 +255,16 @@ docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 Before upgrading, read migration notes and back up persistent volumes. After upgrading, run the smoke checks below before inviting users back.
+
+Prefer a staged rollout:
+
+1. snapshot durable state
+2. build new images
+3. run backend health checks
+4. verify login and one read-only product request
+5. run one source sync
+6. verify one council proposal without approving it
+7. approve a controlled proposal and confirm Git publication
 
 ## Production smoke test
 

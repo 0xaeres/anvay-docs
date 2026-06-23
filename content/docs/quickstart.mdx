@@ -9,6 +9,23 @@ editUrl: ""
 ---
 This guide takes you from an empty checkout to a working product in the Anvay UI.
 
+## What you will build
+
+By the end of this guide, one product will have a synchronized GitHub source, grounded query results, a completed council session, and an approved skill available to MCP clients.
+
+```mermaid
+flowchart LR
+  Clone["Configure backend"] --> Services["Start Qdrant + API"]
+  Services --> UI["Start Next.js UI"]
+  UI --> Setup["Connect skills repository"]
+  Setup --> Product["Create product + GitHub source"]
+  Product --> Sync["Synchronize evidence"]
+  Sync --> Ask["Verify grounded answer"]
+  Ask --> Council["Run council"]
+  Council --> Review["Review proposal"]
+  Review --> Approve["Approve and publish"]
+```
+
 ## Prerequisites
 
 You need:
@@ -20,6 +37,14 @@ You need:
 - a model provider API key supported by your `anvay.yaml`
 - a GitHub personal access token for the product repository
 - the `anvay` and `anvay-ui` repositories checked out next to each other
+
+Recommended local layout:
+
+```text
+projects/
+├── anvay/
+└── anvay-ui/
+```
 
 ## 1. Configure the backend
 
@@ -37,6 +62,8 @@ uv run python -c "from anvay.auth.token_cipher import TokenCipher; print(TokenCi
 ```
 
 Keep product repository credentials out of this file. You enter the product-scoped GitHub token during onboarding, and Anvay encrypts it at rest.
+
+Review `anvay.yaml` before starting. Confirm the Qdrant URL, embedding model, reranker model, and chat model point to services your machine can reach. Model dimensions and collection configuration must agree before indexing begins.
 
 ## 2. Start services and API
 
@@ -57,6 +84,14 @@ Expected response:
 {"status":"ok"}
 ```
 
+Also verify the protected API behavior:
+
+```bash
+curl -i http://localhost:8000/me
+```
+
+With authentication enabled and no session, this request should return `401`. That confirms the API is reachable and the auth boundary is active.
+
 ## 3. Start the UI
 
 In another terminal:
@@ -71,11 +106,15 @@ Open `http://localhost:3000`.
 
 If you have no valid session, the root route sends you to the public landing page. Sign in to enter the product workspace.
 
+Public `/landing` and `/docs` pages do not require the FastAPI backend. Product routes do.
+
 ## 4. Configure the skills repository
 
 Open `/setup`. Create or connect the Git repository where approved product skills will be stored.
 
 This repository is the durable publication target. Council output does not write to it. Only approval does.
+
+Use a dedicated repository rather than mixing generated skills into the Anvay application repository. The backend needs permission to clone, commit, and push to it.
 
 ## 5. Create a product
 
@@ -89,6 +128,14 @@ Open `/new` and provide:
 
 Anvay creates the product and its required GitHub source together. Additional source types can be configured later from the product's Sources screen.
 
+### Choose a stable product ID
+
+The product ID appears in routes, payload filters, storage paths, and MCP configuration. Use a lowercase identifier that will remain meaningful if the display name changes, for example `payments-api` or `developer-portal`.
+
+### Scope the GitHub token
+
+Use the narrowest repository permissions that support cloning the selected repositories. Avoid personal, organization-wide credentials when a product service account is available.
+
 ## 6. Synchronize the source
 
 Open the product's Sources screen and start synchronization.
@@ -96,6 +143,24 @@ Open the product's Sources screen and start synchronization.
 The progress view reports file discovery, manifest diffing, chunking, embedding, sparse encoding, index updates, and cleanup. A repeated sync should skip unchanged resources.
 
 If synchronization fails, inspect the final log event first. Typical causes are repository permissions, an unreachable model endpoint, or an unavailable Qdrant service.
+
+The first run performs the full index. A second run with no repository changes should report mostly unchanged resources:
+
+```mermaid
+flowchart TD
+  List["List current resources"] --> Hash["Read and hash"]
+  Hash --> Compare{"Compare with manifest"}
+  Compare -->|Added| Build["Chunk and index"]
+  Compare -->|Updated| Replace["Write replacement index"]
+  Compare -->|Unchanged| Skip["Skip expensive processing"]
+  Compare -->|Removed| Delete["Delete derived chunks"]
+  Build --> Save["Update manifest"]
+  Replace --> Retire["Retire stale chunks"]
+  Retire --> Save
+  Delete --> Remove["Remove manifest row"]
+```
+
+Do not continue to council if synchronization is incomplete. Council quality depends on current evidence.
 
 ## 7. Ask a grounded question
 
@@ -107,6 +172,14 @@ Where is authentication enforced, and which tests cover it?
 
 A useful answer should name the relevant source locations and attach evidence. If it cannot support a claim, it should expose uncertainty rather than invent a path.
 
+Try three classes of question:
+
+| Question type | Example | What to inspect |
+|---|---|---|
+| Location | Where is authentication enforced? | File and symbol citations |
+| Behavior | What happens when a session expires? | Control flow across multiple sources |
+| Change impact | Which tests should change with this route? | Evidence breadth and uncertainty |
+
 ## 8. Run the council
 
 Open **Council**, start a session, and enter a focused topic such as:
@@ -116,6 +189,12 @@ Create the product guidance a coding agent needs before changing authentication.
 ```
 
 The session moves through planning, specialist analysis, synthesis, bounded repair, evaluation, and finalization. Successful completion creates a proposal, not an approved skill.
+
+Use a topic that describes the intended guidance, not a vague product name. Good topics identify the audience or change boundary:
+
+- guidance for changing request authentication
+- architecture and test constraints for adding a source connector
+- operational rules for modifying the ingestion pipeline
 
 ## 9. Review and approve
 
@@ -129,6 +208,23 @@ You can:
 - request a bounded revision
 
 After approval, Anvay writes the skill to the configured skills repository, commits it, and makes the approved content available to retrieval and MCP clients.
+
+Verify publication in three places:
+
+1. Review shows the proposal as approved.
+2. The skills repository contains the new or updated skill commit.
+3. The product Skills screen can load the approved artifact.
+
+## Troubleshooting the first run
+
+| Symptom | Likely cause | Check |
+|---|---|---|
+| UI remains unavailable | API is not listening on port `8000` | `/health` and backend logs |
+| Repository validation fails | Token scope or repository URL | GitHub access with the same service account |
+| Sync stops during embedding | Provider key, endpoint, dimension, or rate limit | model service logs and `anvay.yaml` |
+| Search returns weak evidence | incomplete sync or unsuitable query | source status, citations, retrieval eval |
+| Council creates no proposal | completeness or evidence evaluation failed | council event stream and final status |
+| Approval fails | skills repository authentication or push conflict | backend logs and repository remote |
 
 ## Next steps
 

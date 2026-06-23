@@ -9,6 +9,39 @@ editUrl: ""
 ---
 Anvay exposes approved skills and product evidence through a standard input/output MCP server. Each server process is started for one product, preserving the same isolation boundary used by the UI and API.
 
+## How the integration works
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant User
+  participant Client as Coding client
+  participant MCP as Anvay MCP server
+  participant Skills as Approved skills
+  participant Retrieval as Product retrieval
+  participant Sources as Source evidence
+
+  User->>Client: Ask for a product change
+  Client->>MCP: Discover relevant skills
+  MCP->>Skills: Search approved artifacts
+  Skills-->>MCP: Matching skill metadata
+  MCP-->>Client: Skill candidates
+  Client->>MCP: Load selected skill
+  MCP-->>Client: Approved guidance
+  Client->>MCP: Query implementation context
+  MCP->>Retrieval: Retrieve within product
+  Retrieval->>Sources: Resolve cited evidence
+  Sources-->>Retrieval: Code and docs
+  Retrieval-->>MCP: Ranked evidence
+  MCP-->>Client: Product-scoped citations
+  Client-->>User: Plan or implement with evidence
+```
+
+The coding client orchestrates tool calls. Anvay supplies two different forms of context:
+
+- **approved skills** for durable conventions, boundaries, and known traps
+- **retrieved evidence** for the current implementation and source citations
+
 ## Before you connect
 
 Confirm that:
@@ -28,6 +61,8 @@ uv run anvay-mcp-server --product my-product
 ```
 
 The server communicates over standard input/output. It is normally launched by the coding client rather than left running in a terminal.
+
+The MCP process needs access to the same configuration and data services as other backend commands. If Qdrant or model services are remote, the machine running MCP must be able to reach them.
 
 ## Client configuration
 
@@ -56,6 +91,41 @@ Use an absolute path for the repository and configuration file:
 
 The exact settings file varies by client, but the command and arguments stay the same.
 
+### One server entry per product
+
+If a client regularly works across several products, configure distinct entries:
+
+```json
+{
+  "mcpServers": {
+    "anvay-payments": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/absolute/path/to/anvay",
+        "run",
+        "anvay-mcp-server",
+        "--product",
+        "payments-api"
+      ]
+    },
+    "anvay-developer-portal": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/absolute/path/to/anvay",
+        "run",
+        "anvay-mcp-server",
+        "--product",
+        "developer-portal"
+      ]
+    }
+  }
+}
+```
+
+Explicit names make the boundary visible to both the user and the coding agent. Do not create one MCP entry that searches every product.
+
 ## Available capabilities
 
 The server exposes tools for:
@@ -70,6 +140,15 @@ The server exposes tools for:
 
 Tool names can evolve with the backend contract. Let the MCP client enumerate the server's current tools instead of hard-coding assumptions in prompts.
 
+### Skills versus direct retrieval
+
+| Need | Use | Reason |
+|---|---|---|
+| Project conventions | approved skill | reviewed and durable |
+| Current implementation | context query | reflects synchronized source evidence |
+| Exact identifier or string | corpus or lexical search | preserves precise technical terms |
+| Broad task orientation | skill discovery, then context query | combines policy with live code |
+
 ## Recommended agent workflow
 
 For a non-trivial code change:
@@ -83,6 +162,19 @@ For a non-trivial code change:
 
 An approved skill gives durable conventions and architecture guidance. Retrieval gives live source evidence. Use both; neither should replace reading the affected code.
 
+### Prompt pattern
+
+Give the client a specific product and outcome:
+
+```text
+Use the Anvay MCP server for payments-api.
+Load relevant approved guidance, then retrieve cited evidence for how webhook
+retries are implemented. Identify the files and tests that would be affected
+by changing the retry limit. Do not infer behavior without source evidence.
+```
+
+This prompt separates guidance discovery, evidence retrieval, and change-impact analysis.
+
 ## Verify the connection
 
 Ask the client to list Anvay tools, then run a narrow query:
@@ -92,6 +184,21 @@ Using Anvay for product my-product, find the source that defines request authent
 ```
 
 A successful response should identify the Anvay tool call and return product-scoped evidence. If the client only answers from its existing context, verify that the MCP server actually started.
+
+Verification checklist:
+
+- the client lists the Anvay server as connected
+- tool enumeration succeeds
+- the configured product ID is correct
+- skill discovery returns only approved artifacts
+- evidence results include stable source references
+- an intentionally unknown question produces uncertainty rather than fabricated files
+
+## Security model
+
+The MCP process inherits access from its local environment. Protect the backend configuration, provider credentials, and product data available to that process. Do not put secrets directly into prompts or commit client configuration containing credentials.
+
+MCP does not weaken Anvay's publication boundary. It can read approved skills and retrieve evidence; it does not approve proposals on behalf of a user.
 
 ## Troubleshooting
 
@@ -118,3 +225,11 @@ Verify backend configuration, Qdrant connectivity, model-provider credentials, a
 ### Context appears to cross products
 
 Stop and treat it as a tenancy defect. Every MCP server invocation and every retrieval request must remain bound to the configured product.
+
+### The process exits immediately
+
+Run the exact configured command in a terminal. Check Python environment resolution, configuration paths, missing environment variables, and startup logs before debugging the client.
+
+### Results are stale
+
+Check the source's most recent synchronization. MCP reads Anvay's current approved skills and retrieval state; it does not synchronize repositories automatically for each query.

@@ -11,6 +11,58 @@ Anvay turns source repositories and engineering documentation into context that 
 
 Use these docs to run Anvay locally, connect your first product, understand the trust model, and expose approved context through MCP.
 
+## How Anvay fits together
+
+Anvay keeps evidence collection, generated drafts, and trusted guidance separate. That separation is the core of the product:
+
+```mermaid
+flowchart LR
+  subgraph Inputs["Product sources"]
+    GitHub["GitHub repositories"]
+    Docs["Engineering docs"]
+    Other["Additional connectors"]
+  end
+
+  subgraph Evidence["Evidence system"]
+    Sync["Delta-safe synchronization"]
+    Manifest["Source manifests"]
+    Index["Dense + lexical index"]
+    RepoMap["Repository map"]
+  end
+
+  subgraph Curation["Curation system"]
+    Ask["Grounded Q&A"]
+    Council["Bounded expert council"]
+    Proposal["Reviewable proposal"]
+    Review{"Human decision"}
+  end
+
+  subgraph Delivery["Trusted delivery"]
+    Skill["Approved skill"]
+    Git["Skills repository"]
+    MCP["MCP clients"]
+  end
+
+  GitHub --> Sync
+  Docs --> Sync
+  Other --> Sync
+  Sync --> Manifest
+  Sync --> Index
+  Sync --> RepoMap
+  Index --> Ask
+  Index --> Council
+  RepoMap --> Council
+  Council --> Proposal
+  Proposal --> Review
+  Review -->|Approve| Skill
+  Review -->|Revise| Council
+  Review -->|Reject| Proposal
+  Skill --> Git
+  Skill --> MCP
+```
+
+The evidence system can update continuously. The trust system changes only through an explicit review action.
+
 ## What you can do with Anvay
 
 - Ask where a behavior is implemented and inspect the supporting source evidence.
@@ -49,6 +101,16 @@ A **product** is Anvay's root isolation boundary. Sources, chunks, sessions, pro
 
 The second boundary is publication. Retrieval may surface live source evidence, and the council may draft recommendations, but only an explicit approval writes durable skill content. This makes the difference between generated advice and trusted product memory visible.
 
+### Why the boundary matters
+
+Without an explicit boundary, generated summaries quietly become institutional memory. They can outlive the source evidence that produced them, spread across tools, and become difficult to correct. Anvay instead keeps every stage inspectable:
+
+- source content remains the factual origin
+- retrieval returns citations to that content
+- generated drafts remain proposals
+- reviewer actions create provenance
+- approved files stay versioned in Git
+
 ## What Anvay is not
 
 Anvay is not a general-purpose chat history, an autonomous documentation publisher, or a replacement for source control. It is a context engine built around current evidence, bounded generation, and reviewable artifacts.
@@ -65,5 +127,20 @@ It also does not treat a vector database as the source of truth. Source manifest
 | Council | Planner, specialist analysis, synthesis, repair, evaluation, and finalization |
 | Review | Human approval, rejection, revision, and provenance |
 | MCP | Portable access to approved skills and product evidence |
+
+## Who uses each surface
+
+| Persona | Primary surface | Typical task |
+|---|---|---|
+| Developer | Ask and Sources | Locate implementation evidence and verify current behavior |
+| Maintainer or SME | Council and Review | Turn repeated project knowledge into approved guidance |
+| Platform administrator | Setup and access controls | Configure publication, users, and production dependencies |
+| Coding agent | MCP | Load approved guidance and retrieve product evidence before editing |
+
+## Documentation conventions
+
+Commands assume the backend repository is named `anvay` and the sibling frontend is named `anvay-ui`. Replace example product IDs, domains, repository URLs, and absolute paths with values from your environment.
+
+When a guide includes a verification step, run it before continuing. Anvay has several external dependencies, and detecting a missing service early is much easier than diagnosing it during source synchronization or a council run.
 
 Ready to see the loop end to end? Continue with the [Quickstart](/docs/quickstart).

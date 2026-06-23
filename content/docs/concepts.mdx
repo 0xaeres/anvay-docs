@@ -9,6 +9,46 @@ editUrl: ""
 ---
 Anvay is easier to operate when five concepts are clear: product, source, evidence, proposal, and approved skill.
 
+## The three-system model
+
+```mermaid
+flowchart TB
+  subgraph Evidence["Evidence system"]
+    Sources["Product sources"]
+    Manifest["Sync manifests"]
+    Retrieval["Retrieval index"]
+    Citations["Cited evidence"]
+  end
+
+  subgraph Drafting["Drafting system"]
+    Session["Council session"]
+    Specialists["Specialist reports"]
+    Draft["Generated proposal"]
+    Eval["Completeness + evidence checks"]
+  end
+
+  subgraph Trust["Trust system"]
+    Human["Human reviewer"]
+    Provenance["Decision provenance"]
+    Approved["Approved skill"]
+    Git["Version-controlled publication"]
+  end
+
+  Sources --> Manifest
+  Manifest --> Retrieval
+  Retrieval --> Citations
+  Citations --> Session
+  Session --> Specialists
+  Specialists --> Draft
+  Draft --> Eval
+  Eval --> Human
+  Human -->|Approve| Approved
+  Human -->|Revise| Session
+  Human -->|Reject| Provenance
+  Approved --> Provenance
+  Approved --> Git
+```
+
 ## Product
 
 A product is the root isolation boundary. It usually represents one service, application, or tightly related set of repositories that should share engineering context.
@@ -36,6 +76,14 @@ Anvay does not blindly re-index every file. It records a manifest of successfull
 
 The ordering matters. A failed replacement does not destroy the last known-good indexed version.
 
+### Source identity
+
+Resources need canonical identifiers that survive temporary working directories. A file cloned from GitHub should be identified by repository and path, not by the local temporary directory used during synchronization. Stable identity enables meaningful diffs, citations, and cleanup.
+
+### Source of truth versus derived state
+
+SQLite manifests record what completed successfully. Qdrant and repository maps are derived serving state. If a derived index is lost, Anvay can rebuild it from the configured sources and manifests; it must not infer sync truth from whatever happens to remain in the vector database.
+
 ## Evidence
 
 Evidence is source material returned by retrieval. Anvay combines semantic and lexical retrieval, fuses candidates, and reranks them before presenting context to an answer or council agent.
@@ -49,6 +97,23 @@ Evidence should preserve:
 
 The retrieval index is derived state. It improves access to evidence but does not replace the source repository or synchronization manifest.
 
+### Retrieval stages
+
+```mermaid
+flowchart LR
+  Query["User or agent query"] --> Dense["Dense retrieval"]
+  Query --> Sparse["BM25 sparse retrieval"]
+  Dense --> RRF["Reciprocal-rank fusion"]
+  Sparse --> RRF
+  RRF --> Rerank["Configured reranker"]
+  Rerank --> Evidence["Ranked evidence"]
+  Evidence --> Answer["Cited answer or council context"]
+```
+
+Dense retrieval captures semantic similarity. Sparse retrieval preserves exact names and technical terms. Rank fusion combines both candidate sets without pretending their scores share one scale. The reranker then compares the query with candidate passages more directly.
+
+Good retrieval output is not merely relevant-looking text. It must be scoped to the product, point back to stable sources, and include enough context for a person to verify the claim.
+
 ## Repo map
 
 The repo map is a compact symbol outline built from source structure. It helps the council understand where important modules and symbols live without placing an entire repository into a model prompt.
@@ -59,13 +124,28 @@ It complements retrieval: the repo map provides structural orientation, while re
 
 A council session is a bounded generation workflow:
 
-```text
-Planner -> specialist fanout -> Synthesizer -> Repair -> Eval -> Finalizer
+```mermaid
+flowchart LR
+  Planner["Planner"] --> Architect["Architecture specialist"]
+  Planner --> Domain["Domain specialist"]
+  Planner --> Quality["Quality specialist"]
+  Architect --> Synth["Synthesizer"]
+  Domain --> Synth
+  Quality --> Synth
+  Synth --> Repair["Repair, at most 3 attempts"]
+  Repair --> Eval{"Complete and supported?"}
+  Eval -->|No| Stop["Stop without proposal"]
+  Eval -->|Yes| Finalizer["Finalizer"]
+  Finalizer --> Proposal["Pending proposal"]
 ```
 
 The planner defines the evidence needs and outline. Specialists examine architecture, domain behavior, and quality concerns. The synthesizer writes the draft. Repair can fill identified gaps within a fixed attempt limit. Evaluation checks structure and evidence constraints before finalization.
 
 A session may fail without producing a proposal. That is expected when the output is incomplete or unsupported.
+
+### Why the council is bounded
+
+Unbounded agent conversations are difficult to reason about, expensive to operate, and prone to hiding failure behind additional prose. Anvay uses named stages, fixed specialist roles, deterministic evaluation where possible, and a repair cap. A clean failure is preferable to quietly publishing an incomplete skill.
 
 ## Proposal
 
@@ -78,6 +158,10 @@ The Review screen is the governance boundary. Reviewers can inspect citations, e
 Approval turns a proposal into a durable skill artifact in the configured skills repository. The artifact includes product guidance and provenance that an MCP client can load when working on relevant tasks.
 
 Approved skills remain ordinary files under version control. This makes changes auditable, portable, and reversible.
+
+### Provenance
+
+Provenance connects the approved artifact to its source proposal, council session, citations, reviewer, and revision count. This lets maintainers answer not only “what guidance is active?” but also “why was it accepted, and from which evidence?”
 
 ## Permissions
 
