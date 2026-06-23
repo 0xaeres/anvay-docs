@@ -1,0 +1,137 @@
+---
+title: "Quickstart"
+description: "Run Anvay locally, connect a GitHub repository, synchronize evidence, and approve your first product skill."
+slug: "quickstart"
+group: "Start here"
+order: 20
+sourceLabel: ""
+editUrl: ""
+---
+This guide takes you from an empty checkout to a working product in the Anvay UI.
+
+## Prerequisites
+
+You need:
+
+- Python 3.13 or newer
+- `uv`
+- Node.js and npm
+- Docker for Qdrant and local services
+- a model provider API key supported by your `anvay.yaml`
+- a GitHub personal access token for the product repository
+- the `anvay` and `anvay-ui` repositories checked out next to each other
+
+## 1. Configure the backend
+
+```bash
+cd anvay
+uv sync
+cp anvay.yaml.example anvay.yaml
+cp .env.example .env
+```
+
+Add the required provider and encryption values to `.env`. Generate the connector-token encryption key with:
+
+```bash
+uv run python -c "from anvay.auth.token_cipher import TokenCipher; print(TokenCipher.generate_key())"
+```
+
+Keep product repository credentials out of this file. You enter the product-scoped GitHub token during onboarding, and Anvay encrypts it at rest.
+
+## 2. Start services and API
+
+```bash
+make services-up
+uv run uvicorn anvay.api.app:app --port 8000 --reload
+```
+
+Verify the API:
+
+```bash
+curl http://localhost:8000/health
+```
+
+Expected response:
+
+```json
+{"status":"ok"}
+```
+
+## 3. Start the UI
+
+In another terminal:
+
+```bash
+cd anvay-ui
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`.
+
+If you have no valid session, the root route sends you to the public landing page. Sign in to enter the product workspace.
+
+## 4. Configure the skills repository
+
+Open `/setup`. Create or connect the Git repository where approved product skills will be stored.
+
+This repository is the durable publication target. Council output does not write to it. Only approval does.
+
+## 5. Create a product
+
+Open `/new` and provide:
+
+- a stable product ID
+- a display name
+- optional ownership metadata
+- one or more GitHub repository URLs
+- a product service-account token with access to those repositories
+
+Anvay creates the product and its required GitHub source together. Additional source types can be configured later from the product's Sources screen.
+
+## 6. Synchronize the source
+
+Open the product's Sources screen and start synchronization.
+
+The progress view reports file discovery, manifest diffing, chunking, embedding, sparse encoding, index updates, and cleanup. A repeated sync should skip unchanged resources.
+
+If synchronization fails, inspect the final log event first. Typical causes are repository permissions, an unreachable model endpoint, or an unavailable Qdrant service.
+
+## 7. Ask a grounded question
+
+Open **Ask** and try a question whose answer exists in the repository:
+
+```text
+Where is authentication enforced, and which tests cover it?
+```
+
+A useful answer should name the relevant source locations and attach evidence. If it cannot support a claim, it should expose uncertainty rather than invent a path.
+
+## 8. Run the council
+
+Open **Council**, start a session, and enter a focused topic such as:
+
+```text
+Create the product guidance a coding agent needs before changing authentication.
+```
+
+The session moves through planning, specialist analysis, synthesis, bounded repair, evaluation, and finalization. Successful completion creates a proposal, not an approved skill.
+
+## 9. Review and approve
+
+Open **Review**. Inspect the proposal, citations, coverage, and provenance.
+
+You can:
+
+- approve it
+- edit and approve it
+- reject it with a reason
+- request a bounded revision
+
+After approval, Anvay writes the skill to the configured skills repository, commits it, and makes the approved content available to retrieval and MCP clients.
+
+## Next steps
+
+- Read [Core concepts](/docs/concepts) to understand the boundaries behind this workflow.
+- Configure an AI coding client with [MCP integration](/docs/mcp).
+- Use [Deployment](/docs/deployment) before exposing Anvay beyond local development.

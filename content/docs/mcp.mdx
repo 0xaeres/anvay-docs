@@ -1,0 +1,120 @@
+---
+title: "MCP integration"
+description: "Connect an MCP-compatible coding client to approved Anvay skills and product-scoped evidence."
+slug: "mcp"
+group: "Use Anvay"
+order: 40
+sourceLabel: ""
+editUrl: ""
+---
+Anvay exposes approved skills and product evidence through a standard input/output MCP server. Each server process is started for one product, preserving the same isolation boundary used by the UI and API.
+
+## Before you connect
+
+Confirm that:
+
+- the backend configuration is available on the machine running the MCP server
+- the target product exists
+- at least one source has synchronized successfully
+- the client can launch local commands
+- approved skills exist if you expect skill discovery to return results
+
+## Start the server manually
+
+From the backend repository:
+
+```bash
+uv run anvay-mcp-server --product my-product
+```
+
+The server communicates over standard input/output. It is normally launched by the coding client rather than left running in a terminal.
+
+## Client configuration
+
+Use an absolute path for the repository and configuration file:
+
+```json
+{
+  "mcpServers": {
+    "anvay": {
+      "command": "uv",
+      "args": [
+        "--directory",
+        "/absolute/path/to/anvay",
+        "run",
+        "anvay-mcp-server",
+        "--product",
+        "my-product"
+      ],
+      "env": {
+        "ANVAY_CONFIG": "/absolute/path/to/anvay/anvay.yaml"
+      }
+    }
+  }
+}
+```
+
+The exact settings file varies by client, but the command and arguments stay the same.
+
+## Available capabilities
+
+The server exposes tools for:
+
+| Capability | Use it when |
+|---|---|
+| Skill discovery | Find approved guidance relevant to a task or file context |
+| Skill retrieval | Load the full approved skill before planning a change |
+| Code-context query | Ask a product-scoped question and retrieve supporting evidence |
+| Corpus search | Inspect direct hybrid-search results for a focused query |
+| Outcome reporting | Record whether retrieved guidance helped complete the task |
+
+Tool names can evolve with the backend contract. Let the MCP client enumerate the server's current tools instead of hard-coding assumptions in prompts.
+
+## Recommended agent workflow
+
+For a non-trivial code change:
+
+1. Find relevant approved skills.
+2. Load the best matching skill.
+3. Query product context for the behavior being changed.
+4. Inspect cited files before editing.
+5. Make and test the change in the repository.
+6. Report whether the skill and evidence were useful.
+
+An approved skill gives durable conventions and architecture guidance. Retrieval gives live source evidence. Use both; neither should replace reading the affected code.
+
+## Verify the connection
+
+Ask the client to list Anvay tools, then run a narrow query:
+
+```text
+Using Anvay for product my-product, find the source that defines request authentication.
+```
+
+A successful response should identify the Anvay tool call and return product-scoped evidence. If the client only answers from its existing context, verify that the MCP server actually started.
+
+## Troubleshooting
+
+### The client cannot launch `uv`
+
+Use the absolute path returned by:
+
+```bash
+which uv
+```
+
+### The product is not found
+
+Check the product ID in the UI URL or backend registry. The MCP argument uses the stable ID, not the display name.
+
+### No skills are returned
+
+Skill discovery only returns approved artifacts. Check Review for pending proposals and approve the intended skill before retrying.
+
+### Retrieval fails
+
+Verify backend configuration, Qdrant connectivity, model-provider credentials, and that the product source completed synchronization.
+
+### Context appears to cross products
+
+Stop and treat it as a tenancy defect. Every MCP server invocation and every retrieval request must remain bound to the configured product.

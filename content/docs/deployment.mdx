@@ -1,183 +1,174 @@
 ---
 title: "Deployment"
-description: "Production deployment runbook for backend and frontend."
+description: "Deploy the Anvay API, private data services, and Next.js UI with secure session authentication."
 slug: "deployment"
-group: "Operations"
+group: "Operate"
 order: 50
-sourceLabel: "docs/DEPLOYMENT.md"
+sourceLabel: ""
 editUrl: ""
 ---
-# Anvay Deployment Runbook
+This guide describes the supported production shape: the FastAPI backend and private data services run on a controlled host, while the Next.js UI can run on Vercel and proxy browser requests to the API.
 
-Target shape:
+## Target architecture
 
-- Backend: Oracle VM, Docker Compose, Caddy TLS, FastAPI API, private Qdrant.
-- Frontend: Vercel, same-origin `/api/anvay/*` proxy to the backend.
-- Auth: Anvay password/session auth with secure HttpOnly cookies, CSRF checks,
-  bootstrap admin, and Anvay-owned product membership authorization.
-- LLMOps: Langfuse Cloud free tier when `LANGFUSE_*` keys are configured.
+| Component | Recommended location | Exposure |
+|---|---|---|
+| Next.js UI | Vercel | Public HTTPS |
+| FastAPI backend | Docker host behind Caddy | Public HTTPS API |
+| Qdrant | Docker network | Private only |
+| SQLite state | Persistent backend volume | Private only |
+| Skills checkout | Persistent backend volume | Private; pushed to Git |
 
-## 1. Prepare Oracle VM
+Browser API calls use the UI's same-origin `/api/anvay/*` route. The route handler forwards only the Anvay session and CSRF cookies to the configured backend.
 
-Install Docker and the Compose plugin, then open only ports `80` and `443` in
-Oracle Cloud firewall/security list. Do not expose Qdrant ports publicly.
+## 1. Prepare the backend host
 
-Clone the backend repo on the VM:
+Install Docker and the Compose plugin. Expose ports `80` and `443`; do not expose Qdrant directly to the internet.
 
 ```bash
-git clone <backend-repo-url> anvay
+git clone <backend-repository-url> anvay
 cd anvay
-```
-
-Create production config:
-
-```bash
 cp anvay.prod.yaml.example anvay.yaml
 cp .env.example .env
 ```
 
-## 2. Required Backend Environment
+## 2. Configure secrets
 
-Fill `.env`:
+Set the production environment:
 
 ```bash
-DEEPINFRA_API_KEY=...
 ANVAY_ENV=production
 ANVAY_TOKEN_KEY=...
 ANVAY_SECRET_KEY=...
 ANVAY_ADMIN_API_KEY=...
-ANVAY_BOOTSTRAP_ADMIN_EMAIL=you@example.com
+ANVAY_BOOTSTRAP_ADMIN_EMAIL=admin@example.com
 ANVAY_BOOTSTRAP_ADMIN_PASSWORD=...
-ANVAY_ALLOWED_ORIGINS=https://<your-vercel-app>.vercel.app
+ANVAY_ALLOWED_ORIGINS=https://app.example.com
 ANVAY_API_DOMAIN=api.example.com
-ANVAY_SKILLS_REPO=https://github.com/<org>/anvay-skills.git
+ANVAY_SKILLS_REPO=https://github.com/example/anvay-skills.git
 ANVAY_SKILLS_REPO_TOKEN=...
-ANVAY_ENABLE_LOCAL_FS_SOURCES=false
 ```
 
-Generate `ANVAY_TOKEN_KEY`:
+Add the model-provider variables required by `anvay.yaml`.
+
+Generate the connector encryption key:
 
 ```bash
 uv run python -c "from anvay.auth.token_cipher import TokenCipher; print(TokenCipher.generate_key())"
 ```
 
-Generate `ANVAY_SECRET_KEY`, `ANVAY_ADMIN_API_KEY`, and
-`ANVAY_BOOTSTRAP_ADMIN_PASSWORD`:
+Generate independent random values for the application secret, admin API key, and bootstrap password:
 
 ```bash
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Optional Langfuse:
+Do not reuse one generated value for multiple settings.
 
-```bash
-LANGFUSE_PUBLIC_KEY=pk-lf-...
-LANGFUSE_SECRET_KEY=sk-lf-...
-LANGFUSE_HOST=https://cloud.langfuse.com
-ANVAY_TRACE_CONTENT=false
-```
-
-Keep `ANVAY_TRACE_CONTENT=false` unless you explicitly want prompt/response
-content in Langfuse.
-
-## 3. Start Backend
+## 3. Start the backend
 
 ```bash
 docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml ps
 ```
 
-Health check:
+Verify the public health endpoint:
 
 ```bash
 curl -i https://api.example.com/health
 ```
 
-Expected:
+Expected body:
 
 ```json
 {"status":"ok"}
 ```
 
-Qdrant should not be reachable from public internet:
+Verify that Qdrant is not publicly reachable. Its ports should remain inside the Docker network.
 
-```bash
-curl -i https://api.example.com:6333
-```
+## 4. Deploy the UI
 
-That should fail.
-
-## 4. Configure Vercel
-
-In Vercel project settings, set:
+Create a Vercel project from `anvay-ui` and set:
 
 ```bash
 ANVAY_API_URL=https://api.example.com
+NEXT_PUBLIC_TINA_CLIENT_ID=...
+TINA_TOKEN=...
+TINA_BRANCH=main
 ```
 
-Deploy the frontend repo. Browser calls stay same-origin at `/api/anvay/*`;
-the Vercel route handler forwards session cookies and CSRF headers to the
-backend. Confirm the Vercel domain is listed in backend `ANVAY_ALLOWED_ORIGINS`.
+`TINA_TOKEN` is server-side and must use an appropriate read-only content token. Do not expose it through a `NEXT_PUBLIC_` variable.
 
-## 5. First Login
+Add the final Vercel domain to `ANVAY_ALLOWED_ORIGINS` on the backend, then redeploy or restart the API after changing the environment.
 
-Open the Vercel app and sign in with `ANVAY_BOOTSTRAP_ADMIN_EMAIL` plus
-`ANVAY_BOOTSTRAP_ADMIN_PASSWORD`. On startup, the backend ensures this email is
-an approved `admin` account and resets its password from the bootstrap env vars.
-After initial setup, rotate or remove bootstrap credentials if you do not want
-this behavior on future restarts. Other users can request access and remain
-pending until an admin approves them.
+## 5. Bootstrap access
 
-## 6. Access Requests
+Open the UI root and sign in with the bootstrap administrator credentials. The root route validates an existing session before showing the authenticated product dashboard; unauthenticated visitors see the public landing page.
 
-Users can visit `/request-access`. Admin approves from:
+After first login:
 
-```text
-/admin/access
-```
+1. Configure the skills repository from Setup.
+2. Create a product.
+3. Connect and synchronize a GitHub source.
+4. Run a council session.
+5. Approve a proposal and verify the Git push.
 
-Approval assigns the user a Anvay app role.
-Revoking a user blocks future backend access.
+Rotate or remove bootstrap credentials according to your operating policy.
 
-## 7. Operations
+## 6. Protect sensitive state
 
-View logs:
+Back up these persistent locations:
+
+- SQLite registry, authentication, proposal, and session data
+- the local skills repository checkout
+- Qdrant storage
+- council checkpoints
+- repository-map artifacts
+
+Qdrant is derived, but restoring it avoids a full re-index. SQLite and the approved skills repository contain durable workflow state and require stricter backup discipline.
+
+## 7. Observability
+
+Follow API logs:
 
 ```bash
 docker compose -f docker-compose.prod.yml logs -f api
 ```
 
-Restart:
+When Langfuse is configured, keep prompt and response content tracing disabled unless your organization has explicitly approved sending that content:
 
 ```bash
-docker compose -f docker-compose.prod.yml restart api
+ANVAY_TRACE_CONTENT=false
 ```
 
-Upgrade:
+Monitor:
+
+- API error rate and latency
+- source-sync failures
+- model-provider failures and rate limits
+- Qdrant availability
+- council completion and repair failures
+- skill Git push failures
+- authentication and access-request events
+
+## 8. Upgrade safely
 
 ```bash
 git pull
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Backup mounted Docker volumes regularly:
+Before upgrading, read migration notes and back up persistent volumes. After upgrading, run the smoke checks below before inviting users back.
 
-- `anvay_data`: SQLite registry/proposals/sessions/checkpoints.
-- `anvay_skills`: local skills repo clone.
-- `qdrant_data`: vector index.
-
-## 8. Smoke Test Checklist
+## Production smoke test
 
 - `/health` returns `200`.
-- Vercel app loads login page.
-- Admin login succeeds.
-- `/products` works only after login.
-- Requests without a valid session or admin API bearer token fail.
-- Non-admin users see only their own products.
-- Product viewers cannot sync sources, run council, or approve proposals.
-- Filesystem sources are rejected in production.
-- Add source -> sync source -> SSE logs stream.
-- Run council -> Langfuse trace appears when configured.
-- Approve proposal -> skill Git commit/push succeeds before proposal status
-  becomes `approved`.
-
+- The landing page and public docs render without an authenticated session.
+- A valid session reaches the Products dashboard.
+- An invalid session cannot access protected backend routes.
+- Product viewers cannot manage sources or run council.
+- Source synchronization streams progress and completes.
+- Ask returns product-scoped citations.
+- Council creates a pending proposal, not an approved skill.
+- Approval commits and pushes the skill before marking the proposal approved.
+- MCP starts for one product and returns only that product's context.
