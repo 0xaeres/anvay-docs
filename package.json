@@ -1,0 +1,14 @@
+{
+  "name": "anvay-docs",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "cms:build": "NODE_OPTIONS=--max-old-space-size=8192 tinacms build --noTelemetry",
+    "cms:dev": "tinacms dev --noTelemetry"
+  },
+  "devDependencies": {
+    "@tinacms/cli": "^2.5.1",
+    "tinacms": "^3.9.3",
+    "typescript": "^5"
+  }
+}
