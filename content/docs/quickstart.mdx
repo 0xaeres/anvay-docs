@@ -15,7 +15,7 @@ By the end of this guide, one product will have a synchronized GitHub source, gr
 
 ```mermaid
 flowchart LR
-  Clone["Configure backend"] --> Services["Start Qdrant + API"]
+  Clone["Configure backend"] --> Services["Start Qdrant + FalkorDB + API"]
   Services --> UI["Start Next.js UI"]
   UI --> Setup["Connect skills repository"]
   Setup --> Product["Create product + GitHub source"]
@@ -33,17 +33,25 @@ You need:
 - Python 3.13 or newer
 - `uv`
 - Node.js and npm
-- Docker for Qdrant and local services
-- a model provider API key supported by your `anvay.yaml`
+- Docker for Qdrant (vector store) and FalkorDB (product graph)
+- a model provider API key — Anvay uses DeepInfra by default (`LLM_API_KEY`); local Jina embedder/reranker are optional (see `anvay.yaml.example`)
 - a GitHub personal access token for the product repository
-- the `anvay` and `anvay-ui` repositories checked out next to each other
+
+Anvay is self-hosted and open source — you run it yourself. Clone the two
+repositories next to each other:
+
+```bash
+mkdir -p projects && cd projects
+git clone https://github.com/0xaeres/anvay-core.git anvay
+git clone https://github.com/0xaeres/anvay-ui.git
+```
 
 Recommended local layout:
 
 ```text
 projects/
-├── anvay/
-└── anvay-ui/
+├── anvay/       # backend: API, retrieval, council, MCP
+└── anvay-ui/    # this web console
 ```
 
 ## 1. Configure the backend
@@ -67,10 +75,16 @@ Review `anvay.yaml` before starting. Confirm the Qdrant URL, embedding model, re
 
 ## 2. Start services and API
 
+`make services-up` starts the backing stores in Docker — Qdrant on
+`http://localhost:6333` and FalkorDB on `localhost:6379` — then you run the API:
+
 ```bash
 make services-up
 uv run uvicorn anvay.api.app:app --port 8000 --reload
 ```
+
+Models default to DeepInfra. To serve the embedder and reranker locally instead,
+run `make local-models-up` and switch to the `jina-local` profile in `anvay.yaml`.
 
 Verify the API:
 

@@ -82,7 +82,7 @@ Resources need canonical identifiers that survive temporary working directories.
 
 ### Source of truth versus derived state
 
-SQLite manifests record what completed successfully. Qdrant and repository maps are derived serving state. If a derived index is lost, Anvay can rebuild it from the configured sources and manifests; it must not infer sync truth from whatever happens to remain in the vector database.
+SQLite manifests record what completed successfully. Qdrant (vectors), the FalkorDB product graph, and repository maps are derived serving state. If a derived index is lost, Anvay can rebuild it from the configured sources and manifests; it must not infer sync truth from whatever happens to remain in the vector database or graph.
 
 ## Evidence
 
@@ -111,6 +111,8 @@ flowchart LR
 ```
 
 Dense retrieval captures semantic similarity. Sparse retrieval preserves exact names and technical terms. Rank fusion combines both candidate sets without pretending their scores share one scale. The reranker then compares the query with candidate passages more directly.
+
+Dense and BM25 are the core of the fan-out, but retrieval draws on more channels: literal `grep`, the repository map, the FalkorDB product graph for structural relationships, and approved skills. The `evidence_search_corpus` and `ask_product_graph` tools combine these so an answer can cite both matching source spans and the graph relationships around them.
 
 Good retrieval output is not merely relevant-looking text. It must be scoped to the product, point back to stable sources, and include enough context for a person to verify the claim.
 

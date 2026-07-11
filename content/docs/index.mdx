@@ -11,6 +11,20 @@ Anvay turns source repositories and engineering documentation into context that 
 
 Use these docs to run Anvay locally, connect your first product, understand the trust model, and expose approved context through MCP.
 
+## Anvay is self-hosted
+
+Anvay is open source (Apache-2.0) and **self-hosted**. There is no managed cloud and no waitlist: you clone the repositories, run them on your own machine or infrastructure, and your product context never leaves it. The public marketing site and these docs are read-only — the **Sign in** and **Request access** links there only work against an instance you (or your team) already run.
+
+To run Anvay you clone three repositories, side by side:
+
+| Repository | Role | Clone |
+|---|---|---|
+| `anvay-core` | FastAPI backend, retrieval, council, MCP server | `git clone https://github.com/0xaeres/anvay-core.git anvay` |
+| `anvay-ui` | Next.js web console (this UI) | `git clone https://github.com/0xaeres/anvay-ui.git` |
+| `anvay-docs` | These docs (only needed to edit documentation) | `git clone https://github.com/0xaeres/anvay-docs.git` |
+
+Most users need only `anvay` and `anvay-ui`. The [Quickstart](/docs/quickstart) walks through both from an empty directory; [Deployment](/docs/deployment) covers running them in production.
+
 ## How Anvay fits together
 
 Anvay keeps evidence collection, generated drafts, and trusted guidance separate. That separation is the core of the product:
