@@ -7,7 +7,7 @@ order: 20
 sourceLabel: ""
 editUrl: ""
 ---
-This guide takes you from an empty checkout to a working product in the Anvay UI.
+This guide clones both repositories and takes you to a working product in the Anvay UI.
 
 ## What you will build
 
@@ -15,7 +15,8 @@ By the end of this guide, one product will have a synchronized GitHub source, gr
 
 ```mermaid
 flowchart LR
-  Clone["Configure backend"] --> Services["Start Qdrant + FalkorDB + API"]
+  Clone["Clone repositories"] --> Config["Configure backend"]
+  Config --> Services["Start Qdrant + FalkorDB + API"]
   Services --> UI["Start Next.js UI"]
   UI --> Setup["Connect skills repository"]
   Setup --> Product["Create product + GitHub source"]
@@ -37,8 +38,11 @@ You need:
 - a model provider API key — Anvay uses DeepInfra by default (`LLM_API_KEY`); local Jina embedder/reranker are optional (see `anvay.yaml.example`)
 - a GitHub personal access token for the product repository
 
-Anvay is self-hosted and open source — you run it yourself. Clone the two
-repositories next to each other:
+Anvay is self-hosted and open source — you run it yourself.
+
+## 1. Clone the repositories
+
+Clone the two repositories next to each other:
 
 ```bash
 mkdir -p projects && cd projects
@@ -54,7 +58,7 @@ projects/
 └── anvay-ui/    # this web console
 ```
 
-## 1. Configure the backend
+## 2. Configure the backend
 
 ```bash
 cd anvay
@@ -73,7 +77,7 @@ Keep product repository credentials out of this file. You enter the product-scop
 
 Review `anvay.yaml` before starting. Confirm the Qdrant URL, embedding model, reranker model, and chat model point to services your machine can reach. Model dimensions and collection configuration must agree before indexing begins.
 
-## 2. Start services and API
+## 3. Start services and API
 
 `make services-up` starts the backing stores in Docker — Qdrant on
 `http://localhost:6333` and FalkorDB on `localhost:6379` — then you run the API:
@@ -106,7 +110,7 @@ curl -i http://localhost:8000/me
 
 With authentication enabled and no session, this request should return `401`. That confirms the API is reachable and the auth boundary is active.
 
-## 3. Start the UI
+## 4. Start the UI
 
 In another terminal:
 
@@ -122,7 +126,7 @@ If you have no valid session, the root route sends you to the public landing pag
 
 Public `/landing` and `/docs` pages do not require the FastAPI backend. Product routes do.
 
-## 4. Configure the skills repository
+## 5. Configure the skills repository
 
 Open `/setup`. Create or connect the Git repository where approved product skills will be stored.
 
@@ -130,7 +134,7 @@ This repository is the durable publication target. Council output does not write
 
 Use a dedicated repository rather than mixing generated skills into the Anvay application repository. The backend needs permission to clone, commit, and push to it.
 
-## 5. Create a product
+## 6. Create a product
 
 Open `/new` and provide:
 
@@ -150,7 +154,7 @@ The product ID appears in routes, payload filters, storage paths, and MCP config
 
 Use the narrowest repository permissions that support cloning the selected repositories. Avoid personal, organization-wide credentials when a product service account is available.
 
-## 6. Synchronize the source
+## 7. Synchronize the source
 
 Open the product's Sources screen and start synchronization.
 
@@ -176,7 +180,7 @@ flowchart TD
 
 Do not continue to council if synchronization is incomplete. Council quality depends on current evidence.
 
-## 7. Ask a grounded question
+## 8. Ask a grounded question
 
 Open **Ask** and try a question whose answer exists in the repository:
 
@@ -194,7 +198,7 @@ Try three classes of question:
 | Behavior | What happens when a session expires? | Control flow across multiple sources |
 | Change impact | Which tests should change with this route? | Evidence breadth and uncertainty |
 
-## 8. Run the council
+## 9. Run the council
 
 Open **Council**, start a session, and enter a focused topic such as:
 
@@ -210,7 +214,7 @@ Use a topic that describes the intended guidance, not a vague product name. Good
 - architecture and test constraints for adding a source connector
 - operational rules for modifying the ingestion pipeline
 
-## 9. Review and approve
+## 10. Review and approve
 
 Open **Review**. Inspect the proposal, citations, coverage, and provenance.
 
