@@ -38,6 +38,8 @@ flowchart TB
 | SQLite state | Persistent backend volume | Private only |
 | Skills checkout | Persistent backend volume | Private; pushed to Git |
 
+The documented `docker-compose.prod.yml` does not include FalkorDB. Graph-dependent behavior — `ask_product_graph` and the graph-local pass inside `evidence_search_corpus` — needs a FalkorDB instance reachable from the API container. If you rely on those, add a FalkorDB service to your Compose file (mirroring the dev `docker-compose.yml`) and point `anvay.yaml` at it before going to production.
+
 Browser API calls use the UI's same-origin `/api/anvay/*` route. The route handler forwards only the Anvay session and CSRF cookies to the configured backend.
 
 ### Request path
@@ -117,6 +119,7 @@ Do not reuse one generated value for multiple settings.
 | bootstrap password | initial administrator login |
 | skills repository token | clone, commit, and push of approved skills |
 | provider API keys | embeddings, reranking, and council model access |
+| `ANVAY_ENABLE_LOCAL_FS_SOURCES` | whether local-filesystem sources can be configured at all; keep `false` in production |
 
 Store production secrets in the host or deployment platform secret manager. Do not bake them into container images.
 
@@ -169,7 +172,7 @@ The docs route fetches published content from Tina Cloud server-side. It does no
 
 ## 5. Bootstrap access
 
-Open the UI root and sign in with the bootstrap administrator credentials. The root route validates an existing session before showing the authenticated product dashboard; unauthenticated visitors see the public landing page.
+Open the UI root and sign in with the bootstrap administrator credentials. On backend startup, the bootstrap email is ensured as an approved `admin` account and its password is reset from the bootstrap environment variables — this happens on every restart, so rotate or remove those variables once you no longer want that behavior.
 
 After first login:
 
@@ -179,7 +182,9 @@ After first login:
 4. Run a council session.
 5. Approve a proposal and verify the Git push.
 
-Rotate or remove bootstrap credentials according to your operating policy.
+### Access requests
+
+Other users sign up at `/request-access` and remain pending until an administrator approves them from `/admin/access`. Approval assigns an app role (`admin`, `editor`, or `viewer`); revoking a user blocks future backend access immediately. There is no self-service admin promotion — every non-bootstrap admin is granted by an existing admin.
 
 ## 6. Network and authorization boundaries
 
@@ -272,7 +277,9 @@ Prefer a staged rollout:
 - The landing page and public docs render without an authenticated session.
 - A valid session reaches the Products dashboard.
 - An invalid session cannot access protected backend routes.
+- Non-admin users see only their own products; a fresh signup at `/request-access` stays pending until approved at `/admin/access`.
 - Product viewers cannot manage sources or run council.
+- Local filesystem sources are rejected when `ANVAY_ENABLE_LOCAL_FS_SOURCES=false`.
 - Source synchronization streams progress and completes.
 - Ask returns product-scoped citations.
 - Council creates a pending proposal, not an approved skill.

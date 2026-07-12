@@ -206,13 +206,21 @@ Open **Council**, start a session, and enter a focused topic such as:
 Create the product guidance a coding agent needs before changing authentication.
 ```
 
-The session moves through planning, specialist analysis, synthesis, bounded repair, evaluation, and finalization. Successful completion creates a proposal, not an approved skill.
+The session moves through planning, single-call synthesis, bounded completeness repair, deterministic evaluation, and finalization. Successful completion creates one product-scoped proposal, not an approved skill.
 
 Use a topic that describes the intended guidance, not a vague product name. Good topics identify the audience or change boundary:
 
 - guidance for changing request authentication
 - architecture and test constraints for adding a source connector
 - operational rules for modifying the ingestion pipeline
+
+You can also start the same session from a terminal instead of the UI:
+
+```bash
+uv run anvay council draft --product my-product --topic "guidance for changing request authentication"
+```
+
+See the [CLI reference](/docs/cli) for the rest of the commands that mirror UI actions.
 
 ## 10. Review and approve
 
@@ -248,4 +256,5 @@ Verify publication in three places:
 
 - Read [Core concepts](/docs/concepts) to understand the boundaries behind this workflow.
 - Configure an AI coding client with [MCP integration](/docs/mcp).
+- Script sync, query, and council runs from a terminal with the [CLI reference](/docs/cli).
 - Use [Deployment](/docs/deployment) before exposing Anvay beyond local development.

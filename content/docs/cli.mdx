@@ -1,0 +1,134 @@
+---
+title: "CLI reference"
+description: "Run sync, retrieval, council, evaluation, and daemon commands directly from the anvay backend, without the UI."
+slug: "cli"
+group: "Use Anvay"
+order: 45
+sourceLabel: ""
+editUrl: ""
+---
+The backend installs an `anvay` command (Typer-based) alongside the API and MCP server. It is the fastest way to exercise ingestion, retrieval, and the council without going through the UI, and it is how CI runs the eval suites.
+
+All commands accept `--config` / `-c` to point at a non-default `anvay.yaml` (default: `anvay.yaml` in the current directory).
+
+## `anvay version`
+
+Prints the installed package version. Useful for confirming which build a shell is actually running.
+
+```bash
+uv run anvay version
+```
+
+## `anvay init`
+
+Scaffolds a starting `anvay.yaml`. As of this writing it does not generate a filled-in config yet — it tells you to copy `anvay.yaml.example` by hand. Treat it as a placeholder, not a wizard.
+
+```bash
+uv run anvay init --config anvay.yaml
+```
+
+## `anvay ingest`
+
+Ingests a local directory into a product without going through a GitHub or UI-configured source. Chunks, embeds, and indexes exactly like a synchronized source would.
+
+```bash
+uv run anvay ingest --product my-product --path ./some/local/repo
+```
+
+| Flag | Purpose |
+|---|---|
+| `--product`, `-p` | Product ID to ingest into (required) |
+| `--path` | Local directory to read (required) |
+| `--no-enrich` | Skip contextual enrichment (HQE questions / contextual retrieval blurbs) for a faster, cheaper pass |
+
+Use this to test ingestion or retrieval changes against a local checkout without configuring a GitHub source first.
+
+## `anvay query`
+
+Runs the low-level hybrid retrieval pipeline (dense + BM25 → RRF → rerank) directly and prints ranked hits with scores and source anchors.
+
+```bash
+uv run anvay query "where is retry logic implemented" --product my-product --top-k 10
+```
+
+| Flag | Purpose |
+|---|---|
+| `--product`, `-p` | Product to search (required) |
+| `--top-k`, `-k` | Number of hits to return (default `10`) |
+| `--mode` | `auto`, `code`, or `text` — which named vector(s) to search |
+
+This is the pipeline itself, not the fuller `evidence_search_corpus` fan-out that the MCP server and council use — no grep, repo map, or graph channels. Use it to sanity-check embeddings, fusion, and reranking in isolation.
+
+## `anvay council draft`
+
+Runs one council session end to end from a terminal: planner, single-call synthesis, bounded repair, evaluation, and finalization. On success it enqueues the resulting proposal in the same queue the UI's Review screen reads from.
+
+```bash
+uv run anvay council draft --product my-product --topic "guidance for changing request authentication"
+```
+
+The command prints the proposal ID, confidence, citation count, and token usage. A proposal created this way still needs human approval in the UI (or via the `/proposals/{id}/approve` API) before it becomes a skill — the CLI does not skip the approval gate.
+
+## `anvay eval run`
+
+Runs the retrieval eval suite and writes JSON/Markdown artifacts. This is the same suite gated in CI (`Recall@10 ≥ 0.80`, `MRR ≥ 0.50`).
+
+```bash
+uv run anvay eval run --suite retrieval --products all
+```
+
+| Flag | Purpose |
+|---|---|
+| `--products`, `-p` | `all`, or a comma-separated list of registered eval product IDs (for example `zod,guava`) |
+| `--out-dir` | Where to write artifacts (default `artifacts/evals`) |
+| `--limit` | Cap golden items per product, for a fast smoke run |
+| `--top-k` | Retrieval top-k used during eval |
+| `--judge-model` | Override the RAGAS judge model |
+| `--ingest` / `--no-ingest` | Ingest each product's corpus first if its index is empty (default: on) |
+| `--force-ingest` | Re-ingest even if the index already looks populated |
+
+The command exits non-zero when the suite fails its gate, which is what makes it usable directly in CI. The RAGAS and code-eval suites are separate entry points, not part of this command:
+
+```bash
+uv run python -m evals.run_ragas
+uv run python -m evals.run_code_eval
+```
+
+See [Contributing](/docs/contributing) for the full set of thresholds across all three suites.
+
+## `anvay daemon`
+
+Starts the continuous ingest daemon for one product. It subscribes to every configured connector marked `watch: true` and re-runs ingestion as update events arrive, instead of waiting for a manually triggered sync.
+
+```bash
+uv run anvay daemon --product my-product
+```
+
+| Flag | Purpose |
+|---|---|
+| `--product`, `-p` | Product ID to watch (required) |
+| `--bootstrap` / `--no-bootstrap` | Run a full sync on startup before watching for events (default: on) |
+
+This process runs until interrupted (`Ctrl-C`). It is not started automatically by the API or by the documented production Compose stack — run it yourself, under a supervisor, for any product that needs to stay current without manual resync. See [Deployment](/docs/deployment) before relying on it in production.
+
+## `anvay delete-product`
+
+Deletes one product and all of its product-scoped state: registry rows, sync manifests, council sessions and proposals, checkpoints, skill files, the repo map, and (unless skipped) its Qdrant vectors.
+
+```bash
+uv run anvay delete-product --product my-product
+```
+
+By default this is a **dry run** — it prints what would be deleted without deleting anything. Pass `--yes` to actually delete:
+
+```bash
+uv run anvay delete-product --product my-product --yes
+```
+
+| Flag | Purpose |
+|---|---|
+| `--product`, `-p` | Product ID to delete (required) |
+| `--yes`, `-y` | Actually delete. Without this, the command only reports what it would do |
+| `--skip-qdrant` | Skip Qdrant index cleanup (leaves stale vectors behind, deleted product still loses its registry/skill state) |
+
+There is no undo. Run without `--yes` first and read the report before adding it.

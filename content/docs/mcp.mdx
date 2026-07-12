@@ -126,28 +126,32 @@ If a client regularly works across several products, configure distinct entries:
 
 Explicit names make the boundary visible to both the user and the coding agent. Do not create one MCP entry that searches every product.
 
-## Available capabilities
+## Available tools
 
-The server exposes tools for:
+The server exposes eight tools:
 
-| Capability | Use it when |
+| Tool | Use it when |
 |---|---|
-| Skill discovery | Find approved guidance relevant to a task or file context |
-| Skill retrieval | Load the full approved skill before planning a change |
-| Code-context query | Ask a product-scoped question and retrieve supporting evidence |
-| Corpus search | Inspect direct hybrid-search results for a focused query |
-| Outcome reporting | Record whether retrieved guidance helped complete the task |
+| `find_skills` | Ranking approved skills relevant to a task or file context. Call this first when starting a task. |
+| `get_skill` | Loading the full Markdown body and frontmatter of one named skill before planning a change. |
+| `query_code_context` | Fast, exact lookup of code chunks by symbol or identifier. |
+| `grep_corpus` | Exact indexed grep for symbols, constants, routes, or literals that semantic search can miss. |
+| `hybrid_search_corpus` | Dense + BM25 + rerank corpus search when symbol lookup is too narrow. |
+| `evidence_search_corpus` | Full evidence retrieval — hybrid search, grep, repo map, graph-local context, and approved skills together. Use for product-system questions that need cited context. |
+| `ask_product_graph` | Multi-hop questions: resolves entities, traverses the product knowledge graph, and returns a cited, evidence-backed answer. |
+| `report_outcome` | Recording whether a skill or piece of evidence actually helped, feeding staleness tracking. |
 
-Tool names can evolve with the backend contract. Let the MCP client enumerate the server's current tools instead of hard-coding assumptions in prompts.
+These are the current stable tool names. A client should still enumerate the server's tools at connect time rather than hard-coding this list, since new tools can be added.
 
 ### Skills versus direct retrieval
 
 | Need | Use | Reason |
 |---|---|---|
-| Project conventions | approved skill | reviewed and durable |
-| Current implementation | context query | reflects synchronized source evidence |
-| Exact identifier or string | corpus or lexical search | preserves precise technical terms |
-| Broad task orientation | skill discovery, then context query | combines policy with live code |
+| Project conventions | `find_skills` then `get_skill` | reviewed and durable |
+| Current implementation | `query_code_context` or `hybrid_search_corpus` | reflects synchronized source evidence |
+| Exact identifier or string | `grep_corpus` | preserves precise technical terms |
+| Change impact / "what breaks if…" | `ask_product_graph` | traverses the graph, then cites the evidence behind it |
+| Broad task orientation | `evidence_search_corpus` | combines hybrid search, grep, repo map, and graph context in one call |
 
 ## Recommended agent workflow
 

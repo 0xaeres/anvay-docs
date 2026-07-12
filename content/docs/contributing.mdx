@@ -16,16 +16,22 @@ flowchart LR
   UI["Next.js UI"] --> Client["Typed API client"]
   Client --> Routes["FastAPI routes"]
   Routes --> Registry["Registry + auth"]
-  Routes --> Ingest["Ingestion"]
+  Routes --> Connectors["Connectors + daemon"]
+  Connectors --> Ingest["Ingestion"]
   Routes --> Retrieval["Retrieval"]
   Routes --> Council["Council"]
   Routes --> Skills["Approval + skills"]
   Council --> Retrieval
   Ingest --> Qdrant["Qdrant"]
+  Ingest --> Graph["FalkorDB graph"]
   Retrieval --> Qdrant
+  Retrieval --> Graph
   Skills --> Git["Skills Git repository"]
   MCP["MCP server"] --> Retrieval
   MCP --> Skills
+  CLI["anvay CLI"] --> Ingest
+  CLI --> Retrieval
+  CLI --> Council
 ```
 
 ## Before you edit
@@ -45,10 +51,14 @@ Two rules dominate code review:
 
 | Area | Location | Use it for |
 |---|---|---|
+| CLI | `anvay/cli.py` | Typer entry point: `ingest`, `query`, `council draft`, `eval run`, `daemon`, `delete-product` |
 | API routes | `anvay/api/routes/` | HTTP contracts, authorization, product workflows |
+| Connectors | `anvay/connectors/` | GitHub, Jira, Confluence, local filesystem, remote MCP, plus the source manager |
+| Daemon | `anvay/daemon.py` | continuous re-sync loop for `watch: true` connectors |
 | Ingestion | `anvay/ingest/` | chunking, manifests, embeddings, derived-index updates |
-| Retrieval | `anvay/retrieval/` | dense and lexical retrieval, fusion, reranking |
-| Council | `anvay/council/` | graph execution, specialist prompts, proposal queue |
+| Retrieval | `anvay/retrieval/` | dense and lexical retrieval, fusion, reranking, evidence assembly |
+| Graph | `anvay/graph/` | tree-sitter extraction, bounded LLM fact layer, FalkorDB store, GraphRAG traversal |
+| Council | `anvay/council/` | LangGraph execution (planner, synthesizer, repair, eval, finalizer), proposal queue |
 | Skills | `anvay/skills/` | models, approval, storage, Git publication |
 | MCP server | `anvay/mcp_server/` | tools exposed to coding clients |
 | UI screens | `anvay-ui/components/screens/` | one screen component per route |
@@ -109,7 +119,7 @@ flowchart TD
 Backend:
 
 ```bash
-uv run ruff check anvay tests
+uv run ruff check anvay tests evals
 uv run pytest -q
 ```
 
@@ -120,11 +130,15 @@ npm run build
 npm run dev
 ```
 
-Run retrieval evaluation after changing chunking, embeddings, sparse encoding, fusion, reranking, repo maps, or evidence assembly:
+Run the eval harness after changing chunking, embeddings, sparse encoding, fusion, reranking, repo maps, evidence assembly, or council prompts. It has three suites, each with a hard-gated threshold:
 
 ```bash
-uv run pytest -m eval
+uv run anvay eval run --suite retrieval   # Recall@10 ≥ 0.80, MRR ≥ 0.50
+uv run python -m evals.run_ragas          # Faithfulness ≥ 0.85, Answer correctness ≥ 0.80, Context recall ≥ 0.75
+uv run python -m evals.run_code_eval      # nDCG@10 ≥ 0.75, Recall@10 ≥ 0.80, Pairwise preference ≥ 0.85
 ```
+
+A pull request that touches retrieval or council behavior should report before/after numbers from these suites, not just "looks better." See `evals/README.md` for harness details.
 
 ### Match validation to risk
 
@@ -133,8 +147,9 @@ uv run pytest -m eval
 | Text or narrow visual adjustment | frontend build and affected viewport |
 | API response or permission | route tests, frontend build, denied and allowed cases |
 | Ingestion behavior | unit tests, sync integration test, delta behavior |
-| Retrieval behavior | unit tests, retrieval eval, latency comparison |
-| Council behavior | graph tests, completeness checks, proposal-gate verification |
+| Retrieval behavior | unit tests, retrieval eval suite, latency comparison |
+| Graph extraction or traversal | unit tests, code eval suite (nDCG, recall), spot-checked traversal |
+| Council behavior | graph tests, completeness checks, proposal-gate verification, RAGAS suite |
 | Approval path | tests proving Git write precedes approved status |
 
 ## Common contribution paths
@@ -145,15 +160,15 @@ Keep request and response data in Pydantic models, apply product authorization, 
 
 ### Add a connector
 
-A connector is incomplete until it can enumerate stable resources, read content, participate in manifest diffing, report progress, and preserve product scope. UI exposure comes after backend synchronization works.
+A connector is incomplete until it can enumerate stable resources, read content, participate in manifest diffing, report progress, and preserve product scope. Look at `anvay/connectors/jira.py` or `anvay/connectors/confluence.py` for the current shape before adding a new one; `anvay/connectors/manager.py` is where a connector gets wired into sync and the watch daemon. UI exposure comes after backend synchronization works.
 
 ### Change council behavior
 
-Preserve the bounded graph and proposal gate. Add deterministic checks where possible, keep evidence attached to material claims, and ensure incomplete output cannot reach review.
+Preserve the bounded graph and proposal gate: planner assembles context once, the synthesizer writes the full skill in one call, repair is capped at three attempts, and incomplete output cannot reach review. Add deterministic checks in `anvay/council/skill_evals.py` where possible before reaching for another LLM judge, and keep evidence attached to material claims. Test with `uv run anvay council draft --product <id> --topic "..."` before wiring a change through the UI.
 
-### Tune retrieval
+### Tune retrieval or the graph
 
-Treat eval results as part of the implementation. Record the baseline, change one meaningful variable, and compare recall, ranking quality, faithfulness, and latency before adopting the change.
+Treat eval results as part of the implementation. Record the baseline, change one meaningful variable, and compare recall, ranking quality, faithfulness, and latency before adopting the change. `uv run anvay query "..." --product <id>` runs the retrieval pipeline directly, without the API or a council session, which is the fastest loop for iterating on chunking, fusion, or reranking changes. See the [CLI reference](/docs/cli) for the full command set.
 
 ### Change documentation
 
