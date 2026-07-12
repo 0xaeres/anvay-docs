@@ -117,19 +117,36 @@ The retrieval index is derived state. It improves access to evidence but does no
 ### Retrieval stages
 
 ```mermaid
-flowchart LR
-  Query["User or agent query"] --> Dense["Dense retrieval"]
-  Query --> Sparse["BM25 sparse retrieval"]
-  Dense --> RRF["Reciprocal-rank fusion"]
-  Sparse --> RRF
-  RRF --> Rerank["Configured reranker"]
-  Rerank --> Evidence["Ranked evidence"]
-  Evidence --> Answer["Cited answer or council context"]
+flowchart TD
+  Query["Product-scoped query"] --> Understand["Understand query<br/>anchors · paths · facets · shape"]
+
+  Understand --> Hybrid["Qdrant hybrid search<br/>dense + BM25 → RRF → rerank"]
+  Understand --> Grep["Exact grep"]
+  Understand --> RepoMap["Repo-map symbols"]
+  Understand --> Memory["Summaries + approved skills"]
+  Understand --> Graph["FalkorDB<br/>resolve anchor → traverse edges"]
+
+  Graph --> IDs["Related graph node IDs"]
+  IDs --> Chunks["Qdrant chunks tagged<br/>with those IDs"]
+
+  Hybrid --> Pool["Pool source-backed candidates"]
+  Grep --> Pool
+  RepoMap --> Pool
+  Memory --> Pool
+  Chunks --> Pool
+
+  Pool --> Mix["Mixed rerank → dedupe → diversity"]
+  Mix --> Coverage{"Evidence coverage sufficient?"}
+  Coverage -->|Yes| Evidence["Cited evidence set"]
+  Coverage -->|No| Repair["DRIFT-lite or coverage repair"]
+  Repair --> Mix
 ```
+
+The FalkorDB branch of the diagram is the join between the two stores; [how vector and graph storage fit together](#how-vector-and-graph-storage-fit-together) below explains exactly what each store holds and how the join works.
 
 Dense retrieval captures semantic similarity. Sparse retrieval preserves exact names and technical terms. Rank fusion combines both candidate sets without pretending their scores share one scale. The reranker then compares the query with candidate passages more directly. This dense + BM25 → RRF → rerank path is the low-level retrieval pipeline (`retrieval/pipeline.py::retrieve`).
 
-The product-facing evidence layer (`retrieval/evidence.py::retrieve_evidence`) fans out further: hybrid search, exact `grep`, the repo map, graph-local traversal, graph community summaries, and approved skills, mixed with reranking, channel quotas, file diversity, and a coverage gate. When initial coverage is thin, it runs a bounded, deterministic follow-up pass over the same channels rather than issuing another LLM query — there is no HyDE and no query-rewriting model in this path.
+The product-facing evidence layer (`retrieval/evidence.py::retrieve_evidence`) fans out further: hybrid search, exact `grep`, the repo map, graph-local traversal, graph community summaries, and approved skills, mixed with reranking, channel quotas, file diversity, and a coverage gate. When initial coverage is thin, it runs a bounded, deterministic follow-up pass over the same channels rather than issuing another LLM query. There is no HyDE and no query-rewriting model in this path.
 
 Good retrieval output is not merely relevant-looking text. It must be scoped to the product, point back to stable sources, and include enough context for a person to verify the claim.
 
@@ -146,6 +163,52 @@ Alongside chunks and the repo map, ingestion extracts a product-scoped knowledge
 The graph is a **navigation** layer, not an answer source on its own. It seeds and biases retrieval — resolving an entity, walking local edges, pulling in community summaries — and every graph-informed answer still resolves back to cited corpus evidence. `ask_product_graph` is the MCP tool built on this: it resolves entities mentioned in a question, traverses the local graph, retrieves the cited evidence behind what it finds, and returns a change-impact or dependency answer grounded in that evidence.
 
 FalkorDB is derived state, exactly like Qdrant: it can be rebuilt from source content and the extraction pipeline. It is not part of the documented production Docker Compose stack by default — see [Deployment](/docs/deployment) before relying on graph features outside local development.
+
+## How vector and graph storage fit together
+
+Anvay keeps text and structure in two separate stores and joins them in application code. Qdrant holds every chunk of source text with its embeddings. FalkorDB holds the product graph: entities and their relationships. Neither store queries the other. The join key is the set of stable graph node IDs written into each chunk's payload during ingest.
+
+```mermaid
+flowchart LR
+  Ingest["Ingest per changed resource"]
+
+  subgraph Qdrant["Qdrant: the text"]
+    Point["One point per chunk<br/>dense vector + BM25 sparse"]
+    Payload["Payload<br/>product · file · line span · content<br/>graph_node_ids · neighbor_chunk_ids"]
+  end
+
+  subgraph Falkor["FalkorDB: the structure"]
+    Nodes["Nodes with stable IDs<br/>files · symbols · modules · routes<br/>config · tables · tickets · docs"]
+    Edges["Typed edges with confidence<br/>CALLS · IMPORTS · DEPENDS_ON<br/>IMPLEMENTS · CONSTRAINS · DOCUMENTS"]
+  end
+
+  Ingest --> Point
+  Point --- Payload
+  Ingest --> Nodes
+  Nodes --- Edges
+  Payload -. "graph_node_ids join key" .- Nodes
+```
+
+### What Qdrant holds
+
+Every synced file is chunked along code structure (tree-sitter function and class boundaries) or document structure (heading hierarchy). Each chunk becomes one Qdrant point carrying a dense embedding for semantic similarity and a BM25 sparse vector for exact terms, split across a code collection and a text collection. Every retrieval path filters on product ID.
+
+### What FalkorDB holds
+
+Each product gets its own named graph. A deterministic extraction pass always runs first and produces the reliable backbone: file, symbol, module, API route, configuration, and database nodes, plus Jira tickets and document headings from non-code sources, connected by structural edges such as `CONTAINS`, `DECLARES`, `IMPORTS`, and `CALLS`. The bounded LLM fact layer then adds only allowlisted relationship types (`CALLS`, `IMPLEMENTS`, `DEPENDS_ON`, `CONSTRAINS`, `DOCUMENTS`, `MENTIONS`, `PART_OF_FLOW`), each with a confidence score and source line anchors. Facts outside the allowlist are dropped, not trusted.
+
+Node IDs are deterministic and derived from the entity itself (kind, product, path, name), so the same entity keeps the same ID across re-syncs. That stability is what makes the IDs usable as a join key.
+
+### How the join happens
+
+At ingest time, every chunk's payload records two things:
+
+- `graph_node_ids`: the graph nodes whose source lines overlap the chunk.
+- `neighbor_chunk_ids`: the chunk IDs of the chunk's depth-one graph neighbors within the same resource, precomputed and ranked by edge confidence.
+
+At query time, the graph channel resolves entities mentioned in the query to graph nodes, traverses their relationships in FalkorDB (bounded depth, edge types chosen from the query shape), and sends the resulting node IDs back to Qdrant to fetch the chunks tagged with them. For one-hop questions the precomputed `neighbor_chunk_ids` answer the hop directly from Qdrant payloads, skipping the FalkorDB round trip. That fast path is a cache of one traversal shape; FalkorDB remains the canonical graph.
+
+The design principle: the graph navigates, the corpus answers. Graph traversal explains why two pieces of evidence are related and steers retrieval toward structurally relevant code, but every claim in the final evidence set cites a real source chunk with a file and line span.
 
 ## Council session
 
