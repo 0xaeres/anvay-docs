@@ -78,7 +78,7 @@ Product onboarding starts with GitHub. The other connector types are added from 
 
 A source can be marked `watch: true`. The `anvay daemon --product <id>` process subscribes to every watched connector for that product and re-runs ingest as update events arrive, instead of waiting for a manually triggered sync. It bootstraps with a full sync unless started with `--no-bootstrap`.
 
-The daemon is a separate long-running process — it is not started automatically by the API or by the documented production Compose stack. Run it yourself (as a supervised process, systemd unit, or container) for any source that needs to stay current without manual resync.
+The daemon is a separate long-running process; it is not started automatically by the API or by the documented production Compose stack. Run it yourself (as a supervised process, systemd unit, or container) for any source that needs to stay current without manual resync.
 
 ### Delta-safe synchronization
 
@@ -158,11 +158,11 @@ It complements retrieval: the repo map provides structural orientation, while re
 
 ## Knowledge graph
 
-Alongside chunks and the repo map, ingestion extracts a product-scoped knowledge graph into FalkorDB. Tree-sitter extraction supplies structural edges directly; a bounded, strictly-validated LLM fact layer adds relationships tree-sitter can't see on its own — `CALLS`, `IMPLEMENTS`, `DEPENDS_ON`, `CONSTRAINS`, and similar edge types. Ingestion also writes community summaries: higher-level descriptions of clusters of related nodes, used to give retrieval and the council broad context without traversing the whole graph.
+Alongside chunks and the repo map, ingestion extracts a product-scoped knowledge graph into FalkorDB. Tree-sitter extraction supplies structural edges directly; a bounded, strictly-validated LLM fact layer adds relationships tree-sitter can't see on its own: `CALLS`, `IMPLEMENTS`, `DEPENDS_ON`, `CONSTRAINS`, and similar edge types. Ingestion also writes community summaries: higher-level descriptions of clusters of related nodes, used to give retrieval and the council broad context without traversing the whole graph.
 
-The graph is a **navigation** layer, not an answer source on its own. It seeds and biases retrieval — resolving an entity, walking local edges, pulling in community summaries — and every graph-informed answer still resolves back to cited corpus evidence. `ask_product_graph` is the MCP tool built on this: it resolves entities mentioned in a question, traverses the local graph, retrieves the cited evidence behind what it finds, and returns a change-impact or dependency answer grounded in that evidence.
+The graph is a **navigation** layer, not an answer source on its own. It seeds and biases retrieval (resolving an entity, walking local edges, pulling in community summaries), and every graph-informed answer still resolves back to cited corpus evidence. `ask_product_graph` is the MCP tool built on this: it resolves entities mentioned in a question, traverses the local graph, retrieves the cited evidence behind what it finds, and returns a change-impact or dependency answer grounded in that evidence.
 
-FalkorDB is derived state, exactly like Qdrant: it can be rebuilt from source content and the extraction pipeline. It is not part of the documented production Docker Compose stack by default — see [Deployment](/docs/deployment) before relying on graph features outside local development.
+FalkorDB is derived state, exactly like Qdrant: it can be rebuilt from source content and the extraction pipeline. It is not part of the documented production Docker Compose stack by default; see [Deployment](/docs/deployment) before relying on graph features outside local development.
 
 ## How vector and graph storage fit together
 
@@ -224,7 +224,7 @@ flowchart LR
   Finalizer --> Proposal["Pending proposal"]
 ```
 
-The planner assembles a deterministic context pack: retrieved evidence, the ranked repo map, and graph/community context, gathered once at ingest and session start rather than re-fetched per stage. The synthesizer writes the entire product skill — all required sections — from that pack in a single LLM call. If sections are missing, a targeted repair loop fills the gaps, capped at three attempts. Evaluation then runs five deterministic checks (identity, section structure, name match, citation-anchor faithfulness, and trigger phrasing) plus an optional, fail-soft LLM entailment gate (`config.council.faithfulness_gate`) that rejects claims the cited excerpt doesn't actually support.
+The planner assembles a deterministic context pack: retrieved evidence, the ranked repo map, and graph/community context, gathered once at ingest and session start rather than re-fetched per stage. The synthesizer writes the entire product skill, all required sections, from that pack in a single LLM call. If sections are missing, a targeted repair loop fills the gaps, capped at three attempts. Evaluation then runs five deterministic checks (identity, section structure, name match, citation-anchor faithfulness, and trigger phrasing) plus an optional, fail-soft LLM entailment gate (`config.council.faithfulness_gate`) that rejects claims the cited excerpt doesn't actually support.
 
 An earlier version of Anvay fanned this out across separate architecture, domain, and quality specialist agents before synthesis. That fanout was removed: the single-call synthesizer with deterministic evaluation produced comparable quality for meaningfully less cost and latency. It would only be reintroduced with an eval-set result showing it's worth it.
 
@@ -244,7 +244,7 @@ The Review screen is the governance boundary. Reviewers can inspect citations, e
 
 A council session produces exactly one product-scoped skill, named after the product (for example `payments-api-skill`). Approval turns that proposal into a durable Markdown artifact in the configured skills repository.
 
-The skill has thirteen required sections — including a system map, data model, interfaces and contracts, invariants and constraints, security and secrets, and known traps — plus optional sections such as testing strategy. One section, **How To Use The Knowledge Base**, is never LLM-authored: it's a static, deterministic template that tells an agent which MCP tool to reach for by question shape. That keeps the routing guidance from drifting and costs no generation tokens.
+The skill has thirteen required sections (including a system map, data model, interfaces and contracts, invariants and constraints, security and secrets, and known traps) plus optional sections such as testing strategy. One section, **How To Use The Knowledge Base**, is never LLM-authored: it's a static, deterministic template that tells an agent which MCP tool to reach for by question shape. That keeps the routing guidance from drifting and costs no generation tokens.
 
 Approved skills remain ordinary files under version control. This makes changes auditable, portable, and reversible. Older approved deployments may still have multiple skill files per product from a prior generation model; those remain readable, but new council sessions produce a single skill.
 
